@@ -14,6 +14,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Lang;
 
 /**
  * Class PasteController
@@ -160,11 +161,10 @@ class PasteController
             return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
         }
 
-        $paste->user = $paste->userId === null ? null : User::where("id", "=", $paste->userId)->first();
+        // Set Language, User and Comments
         $paste->language = $paste->languageId === null ? null : Language::where("id", "=", $paste->languageId)->first();
-        $paste->comments = CommentManager::getPasteComments($token);
-
-        unset($paste->userId);
+        $paste->user = $paste->userId === null ? null : User::where("id", "=", $paste->userId)->first();
+        $paste->comments = Comment::where("pasteId", "=", $paste->id)->get();
 
         return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($paste)->build();
     }
@@ -329,5 +329,50 @@ class PasteController
         }
 
         return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($comment)->build();
+    }
+
+    /**
+     * delete a paste comment
+     * this is an admin only task
+     *
+     * @param Request $request
+     * @param string $token Paste Token
+     * @param string $comment Comment ID
+     *
+     * @return JsonResponse
+     */
+    public function deletePasteComment(Request $request, string $token, string $comment): JsonResponse
+    {
+        $response = new ResponseManager();
+
+        if ($request->header("Authorization") === null) {
+            $error = new ErrorManager();
+            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+        }
+
+        $bearerToken = explode(" ", $request->header("Authorization"))[1];
+        $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
+
+        $paste = Paste::where("token", "=", $token)->first();
+
+        if ($paste === null) {
+            $error = new ErrorManager();
+            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+        }
+
+        if ($user !== null && $user->id !== $paste->userId) {
+            $error = new ErrorManager();
+            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+        }
+
+        $comment = CommentManager::getPasteComment($token, $comment);
+
+        if ($comment === null) {
+            $error = new ErrorManager();
+            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+        }
+
+        $comment->forceDelete();
+        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setHasResult(false)->build();
     }
 }

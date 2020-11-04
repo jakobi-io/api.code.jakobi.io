@@ -32,14 +32,15 @@ class CommentManager
 
     /**
      * @param $token
-     * @return Comment[]
+     * @param $comment
+     * @return Comment
      */
-    public static function getPasteComment($token, $comment)
+    public static function getPasteComment(string $token, string $comment): ?Comment
     {
         $paste = Paste::where("token", "=", $token)->first();
 
         if ($paste === null) {
-            return [];
+            return null;
         }
 
         return Comment::select("id", "userId", "message", "likes", "created_at", "updated_at")->where([

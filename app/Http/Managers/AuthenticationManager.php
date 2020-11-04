@@ -14,6 +14,10 @@ class AuthenticationManager
      */
     public static function getUserByOAuthToken($oauthToken)
     {
+        if ($oauthToken === null) {
+            return null;
+        }
+
         return User::where("apitoken", "=", $oauthToken)->first();
     }
 }
