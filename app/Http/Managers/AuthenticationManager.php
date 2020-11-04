@@ -10,9 +10,9 @@ class AuthenticationManager
      * Make Request to the Accounts-API
      *
      * @param $oauthToken
-     * @return User
+     * @return mixed
      */
-    public static function getUserByOAuthToken($oauthToken): ?User
+    public static function getUserByOAuthToken($oauthToken)
     {
         return User::where("apitoken", "=", $oauthToken)->first();
     }

@@ -71,19 +71,37 @@ class PasteController
             $bearerToken = $request->header("Authorization") !== null ? explode(" ", $request->header("Authorization"))[1] : null;
             $user = $bearerToken === null ? null : AuthenticationManager::getUserByOAuthToken($bearerToken);
 
-
             // Paste Data Values
             $token = CryptoManager::generateToken(6);
             $description = $request->has("description") ? CryptoManager::encrypt($request->get("description")) : null;
             $code = $request->has("code") ? CryptoManager::encrypt($request->get("code")) : null;
-            $language = $request->has("language") ? Language::where('slug', '=', $request->get("language"))->first() : null;
+            $language = $request->has("language") ? Language::where("slug", "=", $request->get("language"))->first() : null;
             $languageId = $language === null ? null : $language->id;
             $userId = $user !== null ? $user->id : null;
-            $password = $request->has("password") ? $request->get("password") : null;
+            $deleteAfter = $request->has("deleteAfter") ? $request->get("deleteAfter") : null;
+            $password = null;
+            $deletedAt = null;
 
             if ($code === null) {
                 $error = new ErrorManager();
                 return $error->setHttpStatus(new HTTPStatus(400, "Bad Request"))->build();
+            }
+
+            if ($deleteAfter !== null) {
+                if ($deleteAfter === "hour") {
+                    $deletedAt = Carbon::now()->addHour();
+                } else if ($deleteAfter === "day") {
+                    $deletedAt = Carbon::now()->addDay();
+                } else if ($deleteAfter === "week") {
+                    $deletedAt = Carbon::now()->addWeek();
+                } else if ($deleteAfter === "month") {
+                    $deletedAt = Carbon::now()->addMonth();
+                } else if ($deleteAfter === "year") {
+                    $deletedAt = Carbon::now()->addYear();
+                } else {
+                    // fallback
+                    $deletedAt = Carbon::now()->addDay();
+                }
             }
 
             // Create Paste
@@ -95,7 +113,7 @@ class PasteController
             $paste->userId = $userId;
             $paste->languageId = $languageId;
             $paste->password = $password;
-
+            $paste->deleted_at = $deletedAt;
 
             $paste->save();
         } catch (\Exception $exception) {
@@ -103,7 +121,7 @@ class PasteController
             return $error->setHttpStatus(new HTTPStatus(500, "Internal Server Error"))->build();
         }
 
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($paste)->build();
+        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult(["token" => $paste->token])->build();
     }
 
     /**
@@ -118,16 +136,19 @@ class PasteController
         $paste = Paste::where("token", "=", $token)->first();
         $pasteDeleted = false;
 
+        if ($paste === null) {
+            $error = new ErrorManager();
+            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+        }
+
         if ($paste->deleted_at !== null) {
             $carbonTime = Carbon::createFromFormat('Y-m-d H:i:s', $paste->deleted_at);
 
             if (!$paste->active || $carbonTime->getTimestamp() <= Carbon::now()->getTimestamp()) {
                 $pasteDeleted = true;
             }
-        } else {
-            if (!$paste->active) {
-                $pasteDeleted = true;
-            }
+        } else if (!$paste->active) {
+            $pasteDeleted = true;
         }
 
         if ($pasteDeleted) {
