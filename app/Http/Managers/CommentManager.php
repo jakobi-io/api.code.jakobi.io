@@ -1,5 +1,5 @@
 <?php
-namespace App\Http\Managers\Object;
+namespace App\Http\Managers;
 
 use App\Models\Comment;
 use App\Models\Paste;
@@ -8,11 +8,18 @@ use App\Models\User;
 class CommentManager
 {
 
+    private AuthenticationManager $authenticationManager;
+
+    public function __construct()
+    {
+        $this->authenticationManager = new AuthenticationManager();
+    }
+
     /**
      * @param $token
      * @return Comment[]
      */
-    public static function getPasteComments($token)
+    public function getPasteComments($token): ?object
     {
         $paste = Paste::where("token", "=", $token)->first();
 
@@ -20,10 +27,12 @@ class CommentManager
             return [];
         }
 
-        $commentList = Comment::select("id", "userId", "message", "likes", "created_at", "updated_at")->where("pasteId", "=", $paste->id)->get();
+        $commentList = Comment::select("id", "userId", "message", "likes", "created_at", "updated_at")
+            ->where("pasteId", "=", $paste->id)
+            ->get();
 
         foreach ($commentList as $comment) {
-            $comment->user = $comment->userId === null ? null : User::where("id", "=", $comment->userId)->first();
+            $comment->user = $this->authenticationManager->getUserById($comment->userId);
             unset($comment->userId);
         }
 
@@ -35,7 +44,7 @@ class CommentManager
      * @param $comment
      * @return Comment
      */
-    public static function getPasteComment(string $token, string $comment): ?Comment
+    public function getPasteComment(string $token, string $comment): ?Comment
     {
         $paste = Paste::where("token", "=", $token)->first();
 
@@ -43,7 +52,7 @@ class CommentManager
             return null;
         }
 
-        return Comment::select("id", "userId", "message", "likes", "created_at", "updated_at")->where([
+        return Comment::where([
             "pasteId" => $paste->id,
             "id" => $comment
         ])->first();

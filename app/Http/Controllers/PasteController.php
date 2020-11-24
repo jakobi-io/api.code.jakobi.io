@@ -3,10 +3,13 @@ namespace App\Http\Controllers;
 
 use App\Http\Managers\AuthenticationManager;
 use App\Http\Managers\CryptoManager;
-use App\Http\Managers\ErrorManager;
+use App\Http\Managers\PasteManager;
+use App\Http\Managers\Response\Error;
+use App\Http\Managers\Response\ErrorManager;
 use App\Http\Managers\Object\CommentManager;
 use App\Http\Managers\ResponseManager;
 use App\Http\Response\HTTPStatus;
+use App\Http\Response\Response;
 use App\Models\Comment;
 use App\Models\Language;
 use App\Models\Paste;
@@ -14,7 +17,6 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Lang;
 
 /**
  * Class PasteController
@@ -27,6 +29,13 @@ use Illuminate\Support\Facades\Lang;
 class PasteController
 {
 
+    private PasteManager $pasteManager;
+
+    public function __construct()
+    {
+        $this->pasteManager = new PasteManager();
+    }
+
     /**
      * Get a list of all the pastes a user owns
      *
@@ -35,19 +44,17 @@ class PasteController
      */
     public function getPasteList(Request $request): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
 
         if ($request->header("Authorization") === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
         $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
         if ($user === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $pasteList = Paste::where([
@@ -55,7 +62,7 @@ class PasteController
             "active" => 1
         ])->get();
 
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($pasteList)->build();
+        return $response->setResult($pasteList)->build();
     }
 
     /**
@@ -84,8 +91,7 @@ class PasteController
             $deletedAt = null;
 
             if ($code === null) {
-                $error = new ErrorManager();
-                return $error->setHttpStatus(new HTTPStatus(400, "Bad Request"))->build();
+                return ErrorManager::buildError(Error::ERROR_PARAMETER_MISSING);
             }
 
             if ($deleteAfter !== null) {
@@ -118,8 +124,7 @@ class PasteController
 
             $paste->save();
         } catch (\Exception $exception) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(500, "Internal Server Error"))->build();
+            return ErrorManager::buildError(Error::ERROR_INTERNAL_ERROR);
         }
 
         return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult(["token" => $paste->token])->build();
@@ -133,40 +138,14 @@ class PasteController
      */
     public function getPaste($token): JsonResponse
     {
-        $response = new ResponseManager();
-        $paste = Paste::where("token", "=", $token)->first();
-        $pasteDeleted = false;
+        $response = new Response();
+        $paste = $this->pasteManager->getPasteByToken($token);
 
-        if ($paste === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+        if ($paste === null || $paste->deleted) {
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
-        if ($paste->deleted_at !== null) {
-            $carbonTime = Carbon::createFromFormat('Y-m-d H:i:s', $paste->deleted_at);
-
-            if (!$paste->active || $carbonTime->getTimestamp() <= Carbon::now()->getTimestamp()) {
-                $pasteDeleted = true;
-            }
-        } else if (!$paste->active) {
-            $pasteDeleted = true;
-        }
-
-        if ($pasteDeleted) {
-            // paste is due to be deleted -> set active state to false
-            $paste->active = false;
-            $paste->save();
-
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
-        }
-
-        // Set Language, User and Comments
-        $paste->language = $paste->languageId === null ? null : Language::where("id", "=", $paste->languageId)->first();
-        $paste->user = $paste->userId === null ? null : User::where("id", "=", $paste->userId)->first();
-        $paste->comments = Comment::where("pasteId", "=", $paste->id)->get();
-
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($paste)->build();
+        return $response->setResult($paste)->build();
     }
 
     /**
@@ -182,22 +161,19 @@ class PasteController
         $paste = Paste::where("token", "=", $token)->first();
 
         if ($paste === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
         }
 
         if ($paste->userId !== null) {
             if ($request->header("Authorization") === null) {
-                $error = new ErrorManager();
-                return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+                return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
             }
 
             $bearerToken = explode(" ", $request->header("Authorization"))[1];
             $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
             if ($user === null || (string) $user->id !== (string) $paste->userId) {
-                $error = new ErrorManager();
-                return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+                return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
             }
         }
 
@@ -220,8 +196,7 @@ class PasteController
         $response = new ResponseManager();
 
         if ($request->header("Authorization") === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
@@ -230,13 +205,11 @@ class PasteController
         $paste = Paste::where("token", "=", $token)->first();
 
         if ($paste === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
         }
 
         if ($user !== null && $user->id !== $paste->userId) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $commentList = Comment::where("pasteId", "=", $paste->id)->get();
@@ -257,8 +230,7 @@ class PasteController
             $paste = Paste::where("token", "=", $token)->first();
 
             if ($paste === null) {
-                $error = new ErrorManager();
-                return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+                return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
             }
 
             $bearerToken = $request->header("Authorization") !== null ? explode(" ", $request->header("Authorization"))[1] : null;
@@ -269,8 +241,7 @@ class PasteController
             $userId = $user !== null ? $user->id : null;
 
             if ($message === null) {
-                $error = new ErrorManager();
-                return $error->setHttpStatus(new HTTPStatus(400, "Bad Request"))->build();
+                return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
             }
 
             // Create Comment
@@ -284,8 +255,7 @@ class PasteController
 
             return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($comment)->build();
         } catch (\Exception $exception) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(500, "Internal Server Error"))->build();
+            return ErrorManager::buildError(Error::ERROR_INTERNAL_ERROR);
         }
     }
 
@@ -302,8 +272,7 @@ class PasteController
         $response = new ResponseManager();
 
         if ($request->header("Authorization") === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
@@ -312,20 +281,17 @@ class PasteController
         $paste = Paste::where("token", "=", $token)->first();
 
         if ($paste === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
         }
 
         if ($user !== null && $user->id !== $paste->userId) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $comment = CommentManager::getPasteComment($token, $comment);
 
         if ($comment === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
         }
 
         return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($comment)->build();
@@ -346,8 +312,7 @@ class PasteController
         $response = new ResponseManager();
 
         if ($request->header("Authorization") === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
@@ -356,20 +321,17 @@ class PasteController
         $paste = Paste::where("token", "=", $token)->first();
 
         if ($paste === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
         }
 
         if ($user !== null && $user->id !== $paste->userId) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(401, "Unauthorized"))->build();
+            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
         }
 
         $comment = CommentManager::getPasteComment($token, $comment);
 
         if ($comment === null) {
-            $error = new ErrorManager();
-            return $error->setHttpStatus(new HTTPStatus(404, "Not Found"))->build();
+            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
         }
 
         $comment->forceDelete();
