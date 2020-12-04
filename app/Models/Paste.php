@@ -51,5 +51,7 @@ class Paste extends Model
      */
     protected $hidden = [
         'languageId',
+        'userId',
+        'password',
     ];
 }

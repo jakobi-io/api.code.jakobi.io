@@ -22,4 +22,9 @@ class LanguageManager
     {
         return Language::where("id", "=", $id)->first();
     }
+
+    public function getLanguageBySlug(string $slug): ?Language
+    {
+        return Language::where("slug", "=", $slug)->first();
+    }
 }

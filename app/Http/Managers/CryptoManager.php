@@ -16,10 +16,14 @@ class CryptoManager
      * base64 decrypt
      *
      * @param $clearText
-     * @return string
+     * @return null|string
      */
-    public static function encrypt($clearText): string
+    public function encrypt($clearText): ?string
     {
+        if (null === $clearText) {
+            return null;
+        }
+
         return base64_encode($clearText);
     }
 
@@ -27,10 +31,14 @@ class CryptoManager
      * base64 encrypt
      *
      * @param $base64
-     * @return false|string
+     * @return null|string
      */
-    public static function decrypt($base64): string
+    public function decrypt($base64): ?string
     {
+        if (null === $clearText) {
+            return null;
+        }
+
         return base64_decode($base64);
     }
 
@@ -41,7 +49,7 @@ class CryptoManager
      * @return string
      * @throws \Exception
      */
-    public static function generateToken($length = 32): string
+    public function generateToken($length = 32): string
     {
         $characters = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         $charactersLength = strlen($characters);

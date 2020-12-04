@@ -10,9 +10,35 @@ class CommentManager
 
     private AuthenticationManager $authenticationManager;
 
+    /** @var CryptoManager $cryptoManager */
+    private CryptoManager $cryptoManager;
+
     public function __construct()
     {
         $this->authenticationManager = new AuthenticationManager();
+        $this->cryptoManager = new CryptoManager();
+    }
+
+    /**
+     * @param Paste $paste
+     * @param User $user
+     * @param string $message
+     * @return Comment
+     */
+    public function createComment(Paste $paste, User $user, string $message): ?Comment
+    {
+        if (!isset($user->id, $paste->id) || $paste === null) {
+            return null;
+        }
+
+        $comment = new Comment();
+
+        $comment->pasteId = $paste->id;
+        $comment->userId = $user->id;
+        $comment->message = $this->cryptoManager->encrypt($message);
+
+        $comment->save();
+        return $comment;
     }
 
     /**

@@ -2,18 +2,12 @@
 namespace App\Http\Controllers;
 
 use App\Http\Managers\AuthenticationManager;
+use App\Http\Managers\CommentManager;
 use App\Http\Managers\CryptoManager;
+use App\Http\Managers\LanguageManager;
 use App\Http\Managers\PasteManager;
-use App\Http\Managers\Response\Error;
-use App\Http\Managers\Response\ErrorManager;
-use App\Http\Managers\Object\CommentManager;
-use App\Http\Managers\ResponseManager;
-use App\Http\Response\HTTPStatus;
 use App\Http\Response\Response;
-use App\Models\Comment;
-use App\Models\Language;
 use App\Models\Paste;
-use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,10 +24,12 @@ class PasteController
 {
 
     private PasteManager $pasteManager;
+    private CommentManager $commentManager;
 
     public function __construct()
     {
         $this->pasteManager = new PasteManager();
+        $this->commentManager = new CommentManager();
     }
 
     /**
@@ -47,20 +43,17 @@ class PasteController
         $response = new Response();
 
         if ($request->header("Authorization") === null) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
         $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
         if ($user === null) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
-        $pasteList = Paste::where([
-            "userId" => $user->id,
-            "active" => 1
-        ])->get();
+        $pasteList = $this->pasteManager->getPasteList($user);
 
         return $response->setResult($pasteList)->build();
     }
@@ -73,61 +66,57 @@ class PasteController
      */
     public function createPaste(Request $request): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
 
         try {
             $bearerToken = $request->header("Authorization") !== null ? explode(" ", $request->header("Authorization"))[1] : null;
             $user = $bearerToken === null ? null : AuthenticationManager::getUserByOAuthToken($bearerToken);
 
+            $languageManager = new LanguageManager();
+
             // Paste Data Values
-            $token = CryptoManager::generateToken(6);
-            $description = $request->has("description") ? CryptoManager::encrypt($request->get("description")) : null;
-            $code = $request->has("code") ? CryptoManager::encrypt($request->get("code")) : null;
-            $language = $request->has("language") ? Language::where("slug", "=", $request->get("language"))->first() : null;
+            $description = $request->get("description");
+            $code = $request->get("code");
+            $language = $request->has("language") ? $languageManager->getLanguageBySlug($request->get("language")) : null;
             $languageId = $language === null ? null : $language->id;
-            $userId = $user !== null ? $user->id : null;
             $deleteAfter = $request->has("deleteAfter") ? $request->get("deleteAfter") : null;
             $password = null;
             $deletedAt = null;
 
             if ($code === null) {
-                return ErrorManager::buildError(Error::ERROR_PARAMETER_MISSING);
+                return $response->setStatusCode(400)->buildError("At least one parameter is missing");
             }
 
             if ($deleteAfter !== null) {
-                if ($deleteAfter === "hour") {
-                    $deletedAt = Carbon::now()->addHour();
-                } else if ($deleteAfter === "day") {
-                    $deletedAt = Carbon::now()->addDay();
-                } else if ($deleteAfter === "week") {
-                    $deletedAt = Carbon::now()->addWeek();
-                } else if ($deleteAfter === "month") {
-                    $deletedAt = Carbon::now()->addMonth();
-                } else if ($deleteAfter === "year") {
-                    $deletedAt = Carbon::now()->addYear();
-                } else {
-                    // fallback
-                    $deletedAt = Carbon::now()->addDay();
+                switch ($deleteAfter) {
+                    case "hour":
+                        $deletedAt = Carbon::now()->addHour();
+                        break;
+                    case "day":
+                        $deletedAt = Carbon::now()->addDay();
+                        break;
+                    case "week":
+                        $deletedAt = Carbon::now()->addWeek();
+                        break;
+                    case "month":
+                        $deletedAt = Carbon::now()->addMonth();
+                        break;
+                    case "year":
+                        $deletedAt = Carbon::now()->addYear();
+                        break;
+                    default:
+                        $deletedAt = null;
+                        break;
                 }
             }
 
             // Create Paste
-            $paste = new Paste();
-
-            $paste->token = $token;
-            $paste->description = $description;
-            $paste->code = $code;
-            $paste->userId = $userId;
-            $paste->languageId = $languageId;
-            $paste->password = $password;
-            $paste->deleted_at = $deletedAt;
-
-            $paste->save();
+            $paste = $this->pasteManager->createPaste($description, $code, $user, $languageId, $password, $deletedAt);
         } catch (\Exception $exception) {
-            return ErrorManager::buildError(Error::ERROR_INTERNAL_ERROR);
+            return $response->setStatusCode(500)->buildError("Internal Server Error");
         }
 
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult(["token" => $paste->token])->build();
+        return $response->setStatusCode(200)->setResult(["token" => $paste->token])->build();
     }
 
     /**
@@ -157,31 +146,29 @@ class PasteController
      */
     public function deletePaste($token, Request $request): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
         $paste = Paste::where("token", "=", $token)->first();
 
         if ($paste === null) {
-            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
         if ($paste->userId !== null) {
             if ($request->header("Authorization") === null) {
-                return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+                return $response->setStatusCode(401)->buildError("Unauthorized");
             }
 
             $bearerToken = explode(" ", $request->header("Authorization"))[1];
             $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
             if ($user === null || (string) $user->id !== (string) $paste->userId) {
-                return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+                return $response->setStatusCode(401)->buildError("Unauthorized");
             }
         }
 
-        $paste->active = false;
-        $paste->deleted_at = Carbon::now()->toDateTimeString();
-        $paste->save();
+        $this->pasteManager->deletePaste($token);
 
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setHasResult(false)->build();
+        return $response->setStatusCode(200)->setResult(null)->build();
     }
 
     /**
@@ -193,69 +180,57 @@ class PasteController
      */
     public function getPasteCommentList(Request $request, $token): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
 
         if ($request->header("Authorization") === null) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
         $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
-        $paste = Paste::where("token", "=", $token)->first();
+        $paste = $this->pasteManager->getPasteByToken($token);
 
         if ($paste === null) {
-            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
         if ($user !== null && $user->id !== $paste->userId) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
-        $commentList = Comment::where("pasteId", "=", $paste->id)->get();
+        $commentList = $this->commentManager->getPasteComments($token);
 
-        foreach ($commentList as $comment) {
-            $comment->user = $comment->userId === null ? null : User::where("id", "=", $comment->userId)->first();
-            unset($comment->userId);
-        }
-
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($commentList)->build();
+        return $response->setStatusCode(200)->setResult($commentList)->build();
     }
 
     public function createPasteComment(Request $request, $token): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
 
         try {
-            $paste = Paste::where("token", "=", $token)->first();
+            $paste = $this->pasteManager->getPasteByToken($token);
 
             if ($paste === null) {
-                return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+                return $response->setStatusCode(404)->buildError("Not Found");
             }
 
             $bearerToken = $request->header("Authorization") !== null ? explode(" ", $request->header("Authorization"))[1] : null;
             $user = $bearerToken === null ? null : AuthenticationManager::getUserByOAuthToken($bearerToken);
 
             // Comment Data Values
-            $message = $request->has("message") ? CryptoManager::encrypt($request->get("message")) : null;
-            $userId = $user !== null ? $user->id : null;
+            $message = $request->get("message");
 
             if ($message === null) {
-                return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+                return $response->setStatusCode(400)->buildError("At least one parameter is missing");
             }
 
             // Create Comment
-            $comment = new Comment();
+            $comment = $this->commentManager->createComment($paste, $user, $message);
 
-            $comment->pasteId = $paste->id;
-            $comment->userId = $userId;
-            $comment->message = $message;
-
-            $comment->save();
-
-            return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($comment)->build();
+            return $response->setStatusCode(200)->setResult($comment)->build();
         } catch (\Exception $exception) {
-            return ErrorManager::buildError(Error::ERROR_INTERNAL_ERROR);
+            return $response->setStatusCode(500)->buildError("Internal Server Error");
         }
     }
 
@@ -269,32 +244,32 @@ class PasteController
      */
     public function getPasteComment(Request $request, $token, $comment): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
 
         if ($request->header("Authorization") === null) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
         $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
-        $paste = Paste::where("token", "=", $token)->first();
+        $paste = $this->pasteManager->getPasteByToken($token);
 
         if ($paste === null) {
-            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
         if ($user !== null && $user->id !== $paste->userId) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
-        $comment = CommentManager::getPasteComment($token, $comment);
+        $comment = $this->commentManager->getPasteComment($token, $comment);
 
         if ($comment === null) {
-            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setResult($comment)->build();
+        return $response->setStatusCode(200)->setResult($comment)->build();
     }
 
     /**
@@ -309,32 +284,32 @@ class PasteController
      */
     public function deletePasteComment(Request $request, string $token, string $comment): JsonResponse
     {
-        $response = new ResponseManager();
+        $response = new Response();
 
         if ($request->header("Authorization") === null) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
         $bearerToken = explode(" ", $request->header("Authorization"))[1];
         $user = AuthenticationManager::getUserByOAuthToken($bearerToken);
 
-        $paste = Paste::where("token", "=", $token)->first();
+        $paste = $this->pasteManager->getPasteByToken($token);
 
         if ($paste === null) {
-            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
         if ($user !== null && $user->id !== $paste->userId) {
-            return ErrorManager::buildError(Error::ERROR_UNAUTHORIZED);
+            return $response->setStatusCode(401)->buildError("Unauthorized");
         }
 
-        $comment = CommentManager::getPasteComment($token, $comment);
+        $commentModel = $this->commentManager->getPasteComment($token, $comment);
 
-        if ($comment === null) {
-            return ErrorManager::buildError(Error::ERROR_NOT_FOUND);
+        if ($commentModel === null) {
+            return $response->setStatusCode(404)->buildError("Not Found");
         }
 
-        $comment->forceDelete();
-        return $response->setHttpStatus(new HTTPStatus(200, "Success"))->setHasResult(false)->build();
+        $commentModel->forceDelete();
+        return $response->setStatusCode(200)->setResult(null)->build();
     }
 }
