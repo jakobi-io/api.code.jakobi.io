@@ -6,20 +6,8 @@ use Laravel\Lumen\Routing\Router;
 $router->get('/', ["uses" => "Controller@index", "as" => "index"]);
 
 // PASTE
-$router->get('/paste', ["uses" => "PasteController@getPasteList", "as" => "paste.getPasteList"]);
-$router->post('/paste', ["uses" => "PasteController@createPaste", "as" => "paste.createPaste"]);
-$router->get('/paste/{token}', ["uses" => "PasteController@getPaste", "as" => "paste.getPaste"]);
-$router->post('/paste/{token}', ["uses" => "PasteController@editPaste", "as" => "paste.editPaste"]); // todo [admin]
+$router->get('/paste', ["uses" => "PasteController@getPasteList", "as" => "paste.list"]);
+$router->post('/paste', ["uses" => "PasteController@createPaste", "as" => "paste.create"]);
+$router->get('/paste/{token}', ["uses" => "PasteController@getPaste", "as" => "paste.get"]);
+$router->post('/paste/{token}', ["uses" => "PasteController@editPaste", "as" => "paste.edit"]); // todo [admin]
 $router->delete('/paste/{token}', ["uses" => "PasteController@deletePaste", "as" => "paste.deletePaste"]);
-$router->get('/paste/{token}/comment', ["uses" => "PasteController@getPasteCommentList", "as" => "paste.getPasteCommentList"]);
-$router->post('/paste/{token}/comment', ["uses" => "PasteController@createPasteComment", "as" => "paste.createPasteComment"]);
-$router->get('/paste/{token}/comment/{comment}', ["uses" => "PasteController@getPasteComment", "as" => "paste.getPasteComment"]);
-$router->post('/paste/{token}/comment/{comment}', ["uses" => "PasteController@editPasteComment", "as" => "paste.editPasteComment"]); // todo [admin]
-$router->delete('/paste/{token}/comment/{comment}', ["uses" => "PasteController@deletePasteComment", "as" => "paste.deletePasteComment"]);
-
-// LANGUAGE
-$router->get('/language', ["uses" => "LanguageController@getLanguageList", "as" => "language.getLanguageList"]); // todo
-$router->post('/language', ["uses" => "LanguageController@createLanguage", "as" => "language.createLanguage"]); // todo
-$router->get('/language/{slug}', ["uses" => "LanguageController@getLanguage", "as" => "language.getLanguage"]); // todo
-$router->post('/language/{slug}', ["uses" => "LanguageController@editLanguage", "as" => "language.editLanguage"]); // todo
-$router->delete('/language/{slug}', ["uses" => "LanguageController@deleteLanguage", "as" => "language.deleteLanguage"]); // todo

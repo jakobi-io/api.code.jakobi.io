@@ -3,37 +3,11 @@ namespace App\Http\Response;
 
 use Illuminate\Http\JsonResponse;
 
-class Response
+class Response extends \Illuminate\Http\Response
 {
-    /** @var int $statusCode */
-    private int $statusCode;
 
     /** @var mixed $result */
     private $result;
-
-    public function __construct()
-    {
-        $this->statusCode = -1;
-    }
-
-    /**
-     * @return int
-     */
-    public function getStatusCode(): int
-    {
-        return $this->statusCode;
-    }
-
-    /**
-     * @param int $statusCode
-     * @return Response
-     */
-    public function setStatusCode(int $statusCode): Response
-    {
-        $this->statusCode = $statusCode;
-
-        return $this;
-    }
 
     /**
      * @return mixed
@@ -58,41 +32,35 @@ class Response
      * @param string $error
      * @return JsonResponse
      */
-    public function buildError(string $error): JsonResponse
+    public function error(string $error): JsonResponse
     {
-        // default status code -> 500
-        if ($this->statusCode === -1) {
-            $this->statusCode = 500;
-        }
-
         return response()->json([
             "success" => false,
+            "statusCode" => $this->statusCode,
+            "statusText" => $this->statusText,
+            "method" => \request()->route()[1]['as'] ?? "error",
             "error" => $error
         ], $this->statusCode);
     }
 
     /**
-     * @param string $error
+     * @param string $rror
      * @return JsonResponse
      */
     public function build(): JsonResponse
     {
-        // default status code -> 200
-        if ($this->statusCode === -1) {
-            $this->statusCode = 200;
-        }
-
         $response = [
             "success" => true,
+            "statusCode" => $this->statusCode,
+            "statusText" => $this->statusText,
+            "method" => \request()->route()[1]['as'] ?? "error"
         ];
 
         try {
             $response['count'] = count($this->result);
         } catch (\Exception $exception) {}
 
-        if (null !== $this->result) {
-            $response['result'] = $this->result;
-        }
+        $response['result'] = $this->result;
 
         return response()->json($response, $this->statusCode);
     }
